@@ -1,0 +1,162 @@
+{
+  "app": {
+    "name": "Russo",
+    "version": "1.0.0",
+    "build": 1,
+    "url": "https://russo.app",
+    "supportEmail": "soporte@russo.app",
+    "contactPhone": "+584141234567"
+  },
+  "api": {
+    "baseUrl": "http://localhost:3001",
+    "endpoints": {
+      "auth": "/api/auth",
+      "products": "/api/products",
+      "cart": "/api/cart",
+      "orders": "/api/orders",
+      "users": "/api/users",
+      "widgets": "/api/widgets"
+    }
+  },
+  "database": {
+    "path": "./data/russo.db",
+    "tables": [
+      "users",
+      "products",
+      "cart",
+      "orders",
+      "widgets"
+    ]
+  },
+  "security": {
+    "jwtSecret": "russo_secreto_jwt_2024_ultra_seguro",
+    "encryptionKey": "russo_encryption_key_256bit_secure_2024",
+    "sessionDuration": 2592000,
+    "passwordMinLength": 6
+  },
+  "features": {
+    "widgets": true,
+    "3dViewer": true,
+    "offlineMode": true,
+    "biometricAuth": true,
+    "darkMode": true,
+    "notifications": true,
+    "backgroundSync": true,
+    "multiLanguage": true
+  },
+  "widgets": {
+    "enabled": true,
+    "maxCount": 15,
+    "refreshInterval": 300000,
+    "types": [
+      "recent_products",
+      "special_offers",
+      "recommended",
+      "order_status",
+      "russo_news",
+      "favorites",
+      "quick_cart",
+      "quick_search",
+      "notifications",
+      "exclusive_events",
+      "wishlist",
+      "history",
+      "personal_metrics",
+      "shortcuts",
+      "interactive_3d"
+    ]
+  },
+  "products": {
+    "maxPerPage": 20,
+    "categories": [
+      "Hogar y Vida Diaria",
+      "Tecnología y Electrónica",
+      "Moda y Accesorios",
+      "Belleza y Cuidado Personal",
+      "Deportes y Aire Libre",
+      "Herramientas y Mejoras del Hogar",
+      "Automotriz",
+      "Educación y Oficina",
+      "Alimentos y Bebidas",
+      "Bebés y Niños",
+      "Juguetes y Entretenimiento",
+      "Salud y Bienestar",
+      "Arte, Manualidades y Pasatiempos",
+      "Productos Regionales/Especializados"
+    ],
+    "genders": [
+      "Hombre",
+      "Mujer",
+      "Unisex"
+    ]
+  },
+  "payments": {
+    "methods": [
+      "credit_card",
+      "debit_card",
+      "paypal",
+      "bank_transfer",
+      "cash"
+    ],
+    "currency": "USD",
+    "taxRate": 0.16,
+    "freeShippingThreshold": 1000
+  },
+  "languages": {
+    "default": "es-VE",
+    "supported": [
+      "es-VE",
+      "es-ES",
+      "pt-BR",
+      "fr-FR",
+      "it-IT",
+      "de-DE",
+      "ja-JP",
+      "zh-CN",
+      "ru-RU",
+      "ar-SA",
+      "ko-KR"
+    ]
+  },
+  "themes": {
+    "default": "dark-luxe",
+    "available": [
+      "dark-luxe",
+      "black-diamond",
+      "platinum",
+      "midnight-gold",
+      "obsidian"
+    ]
+  },
+  "notifications": {
+    "enabled": true,
+    "channels": [
+      "russo-default",
+      "russo-orders",
+      "russo-promotions",
+      "russo-system"
+    ],
+    "types": [
+      "new_product",
+      "order_update",
+      "promotion",
+      "system"
+    ]
+  },
+  "limits": {
+    "maxUploadSize": 104857600,
+    "maxCartItems": 50,
+    "maxFavorites": 100,
+    "maxAddresses": 10,
+    "maxPaymentMethods": 5
+  },
+  "cache": {
+    "enabled": true,
+    "ttl": {
+      "products": 3600000,
+      "userData": 1800000,
+      "widgets": 300000,
+      "config": 86400000
+    }
+  }
+}
