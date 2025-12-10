@@ -1,328 +1,240 @@
-require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
+const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
 const fs = require('fs');
-const { getLocalIP } = require('./setup');
+require('dotenv').config();
 
-// Inicializar app
-const app = express();
+// Configuración automática
 const PORT = process.env.PORT || 3000;
-const LOCAL_IP = getLocalIP();
+const HOST = '0.0.0.0';
+
+const app = express();
 
 // Middleware
 app.use(cors());
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // Servir archivos estáticos
-app.use('/russo/uploads', express.static(path.join(__dirname, 'uploads')));
-app.use('/russo/config', express.static(path.join(__dirname, 'config')));
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+app.use('/3d-models', express.static(path.join(__dirname, 'uploads/3d-models')));
 
-// ==================== RUTAS PRINCIPALES ====================
+// Base de datos
+const db = new sqlite3.Database('./data/russo.db');
 
-// Health Check
-app.get('/russo/health', (req, res) => {
-  res.json({
-    status: 'operational',
-    app: 'Russo Backend',
-    version: '1.0.0',
-    timestamp: new Date().toISOString(),
-    network: {
-      server_ip: LOCAL_IP,
-      client_ip: req.ip,
-      port: PORT
-    },
-    endpoints: {
-      api: `http://${LOCAL_IP}:${PORT}/russo/api/v1`,
-      health: `http://${LOCAL_IP}:${PORT}/russo/health`,
-      config: `http://${LOCAL_IP}:${PORT}/russo/config/mobile-config.json`
-    }
-  });
-});
+// Crear tablas si no existen
+const initDatabase = () => {
+    db.serialize(() => {
+        // Usuarios
+        db.run(`CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            phone TEXT UNIQUE NOT NULL,
+            country_code TEXT NOT NULL,
+            password TEXT NOT NULL,
+            name TEXT,
+            lastname TEXT,
+            verified INTEGER DEFAULT 0,
+            verification_code TEXT,
+            verification_expiry DATETIME,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            theme TEXT DEFAULT 'dark_gold',
+            language TEXT DEFAULT 'es_VE',
+            wallet_balance REAL DEFAULT 0
+        )`);
 
-// Configuración para móvil
-app.get('/russo/config/mobile', (req, res) => {
-  const configPath = path.join(__dirname, 'config', 'mobile-config.json');
-  
-  if (fs.existsSync(configPath)) {
-    const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-    res.json(config);
-  } else {
-    res.json({
-      backend: {
-        url: `http://${LOCAL_IP}:${PORT}`,
-        endpoints: {
-          api: `http://${LOCAL_IP}:${PORT}/russo/api/v1`,
-          health: `http://${LOCAL_IP}:${PORT}/russo/health`
-        }
-      },
-      auto_detected: true
+        // Productos
+        db.run(`CREATE TABLE IF NOT EXISTS products (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            description TEXT,
+            price REAL NOT NULL,
+            category TEXT,
+            subcategory TEXT,
+            gender TEXT,
+            image_url TEXT,
+            model_3d_url TEXT,
+            stock INTEGER DEFAULT 0,
+            featured INTEGER DEFAULT 0,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )`);
+
+        // Carrito
+        db.run(`CREATE TABLE IF NOT EXISTS cart (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            product_id INTEGER NOT NULL,
+            quantity INTEGER DEFAULT 1,
+            added_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users (id),
+            FOREIGN KEY (product_id) REFERENCES products (id)
+        )`);
+
+        // Órdenes
+        db.run(`CREATE TABLE IF NOT EXISTS orders (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            order_number TEXT UNIQUE NOT NULL,
+            total_amount REAL NOT NULL,
+            status TEXT DEFAULT 'pending',
+            shipping_address TEXT,
+            payment_method TEXT,
+            payment_status TEXT DEFAULT 'pending',
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users (id)
+        )`);
+
+        // Widgets personalizados
+        db.run(`CREATE TABLE IF NOT EXISTS user_widgets (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            widget_type TEXT NOT NULL,
+            widget_config TEXT,
+            position INTEGER,
+            is_active INTEGER DEFAULT 1,
+            FOREIGN KEY (user_id) REFERENCES users (id)
+        )`);
+
+        // Transacciones de pago directo
+        db.run(`CREATE TABLE IF NOT EXISTS transactions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            order_id INTEGER,
+            amount REAL NOT NULL,
+            currency TEXT DEFAULT 'USD',
+            method TEXT,
+            status TEXT DEFAULT 'pending',
+            transaction_hash TEXT UNIQUE,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users (id),
+            FOREIGN KEY (order_id) REFERENCES orders (id)
+        )`);
+
+        console.log('✅ Base de datos inicializada');
     });
-  }
+};
+
+// Importar rutas
+const authRoutes = require('./routes/auth');
+const productRoutes = require('./routes/products');
+const cartRoutes = require('./routes/cart');
+const orderRoutes = require('./routes/orders');
+const paymentRoutes = require('./routes/payments');
+const adminRoutes = require('./routes/admin');
+
+// Usar rutas
+app.use('/api/auth', authRoutes);
+app.use('/api/products', productRoutes);
+app.use('/api/cart', cartRoutes);
+app.use('/api/orders', orderRoutes);
+app.use('/api/payments', paymentRoutes);
+app.use('/api/admin', adminRoutes);
+
+// Ruta para términos legales
+app.get('/api/legal/terms', (req, res) => {
+    const terms = {
+        v1: "1.0",
+        last_updated: new Date().toISOString(),
+        sections: {
+            acceptance: "Al usar Russo, aceptas estos términos. Si no estás de acuerdo, no uses la app.",
+            eligibility: "Debes tener al menos 16 años para usar Russo.",
+            account: "Eres responsable de tu cuenta y su seguridad.",
+            purchases: "Las compras son finales. No hay reembolsos excepto por fallas del producto.",
+            pricing: "Los precios pueden cambiar. El precio final es el mostrado al pagar.",
+            shipping: "Los tiempos de envío varían. No somos responsables de retrasos de terceros.",
+            intellectual_property: "Todo el contenido de Russo está protegido. No copies nada.",
+            limitations: "No uses Russo para actividades ilegales.",
+            termination: "Podemos suspender tu cuenta si violas estos términos.",
+            governing_law: "Estos términos se rigen por las leyes de Venezuela.",
+            changes: "Podemos cambiar estos términos. Te notificaremos de cambios importantes.",
+            contact: "Para preguntas legales: legal@russo.com"
+        }
+    };
+    res.json(terms);
 });
 
-// Descubrimiento automático
-app.get('/russo/discover', (req, res) => {
-  res.json({
-    service: 'russo-backend',
-    url: `http://${LOCAL_IP}:${PORT}`,
-    endpoints: ['/russo/health', '/russo/api/v1', '/russo/config/mobile']
-  });
+// Ruta para política de privacidad
+app.get('/api/legal/privacy', (req, res) => {
+    const privacy = {
+        data_collected: [
+            "Número de teléfono para registro",
+            "Nombre y apellido (opcional)",
+            "Dirección de envío",
+            "Historial de compras",
+            "Preferencias de widget"
+        ],
+        data_usage: "Solo usamos tus datos para operar Russo. No vendemos datos.",
+        data_protection: "Encriptamos todos los datos sensibles.",
+        your_rights: [
+            "Puedes ver tus datos",
+            "Puedes solicitar eliminación",
+            "Puedes exportar tus datos"
+        ],
+        cookies: "No usamos cookies de seguimiento.",
+        children: "No recolectamos datos de menores de 16 años.",
+        changes: "Te notificaremos cambios en esta política."
+    };
+    res.json(privacy);
 });
 
-// ==================== API RUTAS ====================
-
-// Auth Routes
-app.post('/russo/api/v1/auth/register', (req, res) => {
-  const { phone, name, password } = req.body;
-  
-  if (!phone || !name || !password) {
-    return res.status(400).json({ error: 'Faltan campos requeridos' });
-  }
-  
-  // Simulación de registro
-  res.json({
-    success: true,
-    message: 'Usuario registrado. Verifica tu teléfono.',
-    user_id: 'user_' + Date.now(),
-    requires_verification: true
-  });
-});
-
-app.post('/russo/api/v1/auth/verify', (req, res) => {
-  const { phone, code } = req.body;
-  
-  if (!phone || !code) {
-    return res.status(400).json({ error: 'Teléfono y código requeridos' });
-  }
-  
-  // Simulación de verificación
-  res.json({
-    success: true,
-    message: 'Teléfono verificado',
-    token: 'jwt_token_' + Date.now(),
-    user: {
-      id: 'user_123',
-      phone: phone,
-      name: 'Usuario Russo'
+// Servidor de archivos para modelos 3D
+app.get('/api/3d/:modelId', (req, res) => {
+    const modelId = req.params.modelId;
+    const modelPath = path.join(__dirname, 'uploads/3d-models', `${modelId}.glb`);
+    
+    if (fs.existsSync(modelPath)) {
+        res.sendFile(modelPath);
+    } else {
+        res.status(404).json({ error: 'Modelo 3D no encontrado' });
     }
-  });
 });
 
-app.post('/russo/api/v1/auth/login', (req, res) => {
-  const { phone, password } = req.body;
-  
-  if (!phone || !password) {
-    return res.status(400).json({ error: 'Teléfono y contraseña requeridos' });
-  }
-  
-  // Simulación de login
-  res.json({
-    success: true,
-    token: 'jwt_token_' + Date.now(),
-    user: {
-      id: 'user_123',
-      phone: phone,
-      name: 'Usuario Russo'
+// Endpoint para widgets
+app.get('/api/widgets/:userId', (req, res) => {
+    const userId = req.params.userId;
+    
+    db.all(
+        'SELECT * FROM user_widgets WHERE user_id = ? AND is_active = 1 ORDER BY position',
+        [userId],
+        (err, widgets) => {
+            if (err) {
+                res.status(500).json({ error: err.message });
+                return;
+            }
+            
+            // Widgets por defecto si no tiene configurados
+            if (widgets.length === 0) {
+                widgets = [
+                    { widget_type: 'featured_product', position: 0 },
+                    { widget_type: 'recent_products', position: 1 },
+                    { widget_type: 'quick_cart', position: 2 },
+                    { widget_type: 'notifications', position: 3 },
+                    { widget_type: 'order_status', position: 4 }
+                ];
+            }
+            
+            res.json({ widgets });
+        }
+    );
+});
+
+// Iniciar servidor
+app.listen(PORT, HOST, () => {
+    console.log(`🚀 Servidor Russo iniciado en http://${HOST}:${PORT}`);
+    console.log(`📱 Endpoint móvil: http://${getLocalIp()}:${PORT}`);
+    console.log(`⚖️  Términos legales: http://${getLocalIp()}:${PORT}/api/legal/terms`);
+    initDatabase();
+});
+
+function getLocalIp() {
+    const interfaces = require('os').networkInterfaces();
+    for (const name of Object.keys(interfaces)) {
+        for (const iface of interfaces[name]) {
+            if (iface.family === 'IPv4' && !iface.internal) {
+                return iface.address;
+            }
+        }
     }
-  });
-});
-
-// Product Routes
-app.get('/russo/api/v1/products', (req, res) => {
-  const products = [
-    {
-      id: 'P001',
-      name: 'iPhone 15 Pro Max',
-      description: 'Smartphone premium Apple',
-      price: 1799.99,
-      category: 'Tecnología',
-      stock: 10,
-      is_featured: true,
-      image_url: ''
-    },
-    {
-      id: 'P002',
-      name: 'Sofá Chesterfield',
-      description: 'Sofá de cuero italiano',
-      price: 4499.99,
-      category: 'Muebles',
-      stock: 3,
-      is_featured: true,
-      image_url: ''
-    },
-    {
-      id: 'P003',
-      name: 'Reloj Cartier',
-      description: 'Reloj de lujo automático',
-      price: 12499.99,
-      category: 'Joyas',
-      stock: 1,
-      is_featured: true,
-      image_url: ''
-    },
-    {
-      id: 'P004',
-      name: 'Vestido Dior',
-      description: 'Vestido alta costura',
-      price: 8899.99,
-      category: 'Moda',
-      stock: 5,
-      is_featured: false,
-      image_url: ''
-    }
-  ];
-  
-  // Filtrar por categoría si se especifica
-  const category = req.query.category;
-  let filteredProducts = products;
-  
-  if (category) {
-    filteredProducts = products.filter(p => p.category === category);
-  }
-  
-  res.json({
-    success: true,
-    products: filteredProducts,
-    total: filteredProducts.length
-  });
-});
-
-app.get('/russo/api/v1/products/:id', (req, res) => {
-  const productId = req.params.id;
-  const products = [
-    { id: 'P001', name: 'iPhone 15 Pro Max', price: 1799.99, category: 'Tecnología' },
-    { id: 'P002', name: 'Sofá Chesterfield', price: 4499.99, category: 'Muebles' },
-    { id: 'P003', name: 'Reloj Cartier', price: 12499.99, category: 'Joyas' },
-    { id: 'P004', name: 'Vestido Dior', price: 8899.99, category: 'Moda' }
-  ];
-  
-  const product = products.find(p => p.id === productId);
-  
-  if (!product) {
-    return res.status(404).json({ error: 'Producto no encontrado' });
-  }
-  
-  res.json({
-    success: true,
-    product: {
-      ...product,
-      description: `Descripción detallada de ${product.name}`,
-      specifications: {
-        material: 'Premium',
-        origin: 'Internacional',
-        warranty: '2 años'
-      },
-      images: [],
-      related_products: products.filter(p => p.id !== productId).slice(0, 3)
-    }
-  });
-});
-
-// Cart Routes
-app.post('/russo/api/v1/cart/add', (req, res) => {
-  const { product_id, quantity = 1 } = req.body;
-  
-  res.json({
-    success: true,
-    message: 'Producto añadido al carrito',
-    cart_item: {
-      id: 'cart_item_' + Date.now(),
-      product_id,
-      quantity,
-      added_at: new Date().toISOString()
-    }
-  });
-});
-
-app.get('/russo/api/v1/cart', (req, res) => {
-  res.json({
-    success: true,
-    cart: {
-      id: 'cart_123',
-      items: [
-        { product_id: 'P001', name: 'iPhone 15 Pro Max', price: 1799.99, quantity: 1 },
-        { product_id: 'P002', name: 'Sofá Chesterfield', price: 4499.99, quantity: 1 }
-      ],
-      total: 6299.98,
-      item_count: 2
-    }
-  });
-});
-
-// Order Routes
-app.post('/russo/api/v1/orders/create', (req, res) => {
-  const { items, shipping_address, payment_method } = req.body;
-  
-  res.json({
-    success: true,
-    order: {
-      id: 'ORDER_' + Date.now(),
-      number: 'RUSSO-' + Math.random().toString(36).substr(2, 9).toUpperCase(),
-      items: items || [],
-      total: 6299.98,
-      status: 'pending',
-      created_at: new Date().toISOString()
-    }
-  });
-});
-
-// ==================== MANEJO DE ERRORES ====================
-
-// 404 - Ruta no encontrada
-app.use((req, res) => {
-  res.status(404).json({
-    error: 'Ruta no encontrada',
-    suggestion: `Verifica la URL. Backend disponible en: http://${LOCAL_IP}:${PORT}`
-  });
-});
-
-// Manejo de errores global
-app.use((err, req, res, next) => {
-  console.error('Error:', err);
-  
-  // Crear directorio de logs si no existe
-  const logDir = path.join(__dirname, 'logs');
-  if (!fs.existsSync(logDir)) {
-    fs.mkdirSync(logDir, { recursive: true });
-  }
-  
-  // Log del error
-  fs.appendFileSync(
-    path.join(logDir, 'error.log'),
-    `[${new Date().toISOString()}] ${err.stack || err.message}\n`
-  );
-  
-  res.status(500).json({
-    error: 'Error interno del servidor',
-    message: process.env.NODE_ENV === 'development' ? err.message : undefined
-  });
-});
-
-// ==================== INICIAR SERVIDOR ====================
-
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`
-╔═══════════════════════════════════════════════════════╗
-║                  🚀 RUSSO BACKEND                    ║
-╠═══════════════════════════════════════════════════════╣
-║  Status:  ✅ ONLINE                                  ║
-║  Port:    ${PORT.toString().padEnd(43)} ║
-║  IP:      ${LOCAL_IP.padEnd(43)} ║
-║  Mode:    ${process.env.NODE_ENV || 'development'.padEnd(43)} ║
-╠═══════════════════════════════════════════════════════╣
-║                 📍 ACCESO DESDE MÓVIL                ║
-╠═══════════════════════════════════════════════════════╣
-║  URL: http://${LOCAL_IP}:${PORT}                      ║
-║  Health: http://${LOCAL_IP}:${PORT}/russo/health      ║
-║  Config: http://${LOCAL_IP}:${PORT}/russo/config/mobile
-╚═══════════════════════════════════════════════════════╝
-  `);
-  
-  console.log('\n📱 Para configurar en la app móvil:');
-  console.log('   1. Conecta a la misma red WiFi');
-  console.log(`   2. Configura URL: http://${LOCAL_IP}:${PORT}`);
-  console.log('   3. Presiona "Probar Conexión"');
-  console.log('\n🛑 Presiona Ctrl+C para detener\n');
-});
+    return 'localhost';
+}
